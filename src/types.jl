@@ -6,7 +6,6 @@ using Clang.wrap_cpp
 using Clang.cindex
 import Clang.wrap_cpp: WrappedMethod, analyze_method, get_args, get_proxy
 
-
 immutable WrappedConstructor
     name::String
     constructor::Constructor
@@ -26,13 +25,14 @@ immutable WrappedClass
     methods::Vector{WrappedMethod}
     class::ClassDecl
 end
-import Clang.cindex: name
+import Clang.cindex: name, spelling
 name(x) = x.name
 
 raw(x::WrappedClass) = x.class
 raw(x::WrappedDestructor) = x.destructor
 raw(x::WrappedMethod) = x.method
 raw(x::WrappedConstructor) = x.constructor
+spelling(x) = x |> raw |> spelling
 
 function analyze(c::Constructor)
     arg_list = get_args(c)

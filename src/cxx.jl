@@ -31,9 +31,9 @@ function ecxxnew(constructor::Symbol, args)
 end
 
 
-function eicxx(obj, method, args)
-    callargs = join(("\$$arg" for arg in args), ", ")
-    s = "\$$obj -> \$$method($callargs)"
+function emethodcall(obj, method, args)
+    callargs = join(("\$($arg)" for arg in args), ", ")
+    s = "\$($obj) -> $method($callargs);"
     Expr(:macrocall, Symbol("@icxx_str"), s)
 end
 
@@ -59,14 +59,16 @@ jlspelling(x::CXXMethod) = x |> spelling |> jlspelling_method
 jlspelling(x::ClassDecl) = x |> spelling |> jlspelling_class
 jlspelling(x::Destructor) = "destroy"
 jlspelling(x::WrappedConstructor) = jlspelling(x.parent)
+jlsspelling(x) = Symbol(jlspelling(x))
+sspelling(x) = Symbol(spelling(x))
 
 function wrapexpr(m::WrappedMethod)
     sm_args = argspellings(m)
-    sm = m |> spelling |> Symbol
-    smjl = m |> jlspelling |> Symbol
+    sm = sspelling(m)
+    smjl = jlsspelling(m)
     sobj = :obj
-    eobj_typed = Expr(Symbol("::"), sobj, jlspelling(m.parent))
-    body = eicxx(sobj, sm, sm_args)
+    eobj_typed = Expr(Symbol("::"), sobj, jlsspelling(m.parent))
+    body = emethodcall(:(unwrap($sobj)), sm, sm_args)
     efunction(smjl, [eobj_typed; sm_args], body)
 end
 
@@ -86,13 +88,21 @@ function argspellings(args::Vector)
     ret
 end
 
-epcpp(spelling::String) = Expr(:macrocall, Symbol("pcpp_str"), spelling)
+
+function ecxxtype(name::String)
+    # expression for something like
+    # Cxx.CppPtr{Cxx.CppValue{Cxx.CxxQualType{Cxx.CppBaseType{name},(false,false,false)},N},(false,false,false)}
+    Expr(:curly, :(Cxx.CppPtr),
+        Expr(:macrocall, Symbol("@vcpp_str"), name),
+        (false, false, false)
+    )
+end
 
 function eclass2type(classspelling::String)
     sT = Symbol(classspelling)
     sPtrT = Symbol("Ptr", classspelling)
     quote
-        typealias $sPtrT $(epcpp(classspelling))
+        typealias $sPtrT $(ecxxtype(classspelling))
         immutable $sT
             pointer::$sPtrT
         end
