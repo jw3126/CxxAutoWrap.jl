@@ -30,15 +30,15 @@ end
 
 function wrapexpr(c::WrappedConstructor, wc::WrapperConfig=WrapperConfig())
     args = argspellings(c)
+    cxxargs = argspellings_jl2cxx(c)
     sconstructor = c |> spelling |> Symbol
     cxxspell = cxxspelling(c)
     jlspell = jlspelling(c, wc)
-
-    body = quote
-        ptr = $(ecxxnew(Symbol(cxxspell), args))
-        $(Symbol(cxxspell))(ptr)
-    end
-    efunction(Symbol(jlspell), args, body)
+    body = Expr(:block,
+        eequals(:ptr, ecxxnew(cxxspell, cxxargs)),
+        Expr(:call, cxxspell, :ptr)
+    )
+    efunction(jlspell, args, body)
 end
 
 
@@ -65,17 +65,18 @@ jlspelling(x::WrappedConstructor, wc::WrapperConfig) = jlspelling(x.parent, wc)
 jlspelling(x::Type{Val{:Destructor}}, wc::WrapperConfig) = wc.rename.destructor |> Symbol
 
 function wrapexpr(m::WrappedMethod, wc::WrapperConfig=WrapperConfig())
-    sm_args = argspellings(m)
-    cxxspell = cxxspelling(m)
     jlspell = jlspelling(m, wc)
+    jlargs = argspellings(m)
+    cxxspell = cxxspelling(m)
+    cxxargs = argspellings_jl2cxx(m)
     obj = :obj
     T = jlspelling(m.parent, wc)
     objT = etyped(obj, T)
     body = quote
-        ret = $(emethodcall(:(jl2cxx($obj)), cxxspell, sm_args))
+        ret = $(emethodcall(:(jl2cxx($obj)), cxxspell, cxxargs))
         cxx2jl(ret)
     end
-    efunction(jlspell, [objT; sm_args], body)
+    efunction(jlspell, [objT; jlargs], body)
 end
 
 function methodsymbols(x::WrappedClass, wc::WrapperConfig=WrapperConfig())
@@ -125,6 +126,11 @@ function argspellings(args::Vector)
     end
     ret
 end
+function argspellings_jl2cxx(m)
+    args = argspellings(m)
+    [:(jl2cxx($arg)) for arg in args]
+end
+
 
 function epreamble()
     quote
@@ -145,6 +151,8 @@ function epreamble()
         Convert C++ object to julia object. This method is called after each C++ method call.
         """
         cxx2jl(x) = x
+        # cxx2jl(p::Ptr{UInt8}) = unsafe_string(p)?
+
     end
 end
 
@@ -156,6 +164,7 @@ function edestroy(jlspell_class, jlspell_destroy)
     obj_typed = etyped(Symbol(obj), jlspell_class)
     efunction(jlspell_destroy, (obj_typed,), body)
 end
+
 
 function eclass2type(cxxspell, jlspell, jlspell_destroy)
     sT = jlspell

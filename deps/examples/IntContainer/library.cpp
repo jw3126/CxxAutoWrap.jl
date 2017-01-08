@@ -9,3 +9,11 @@ int IntContainer::getIt() {
 void IntContainer::setIt(int i) {
     x = i;
 }
+
+char* StringContainer::getIt() {
+    return x;
+}
+
+void StringContainer::setIt(char* i) {
+    x = i;
+}

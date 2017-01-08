@@ -16,5 +16,16 @@ private:
     int x;
 };
 
+class StringContainer
+{
+public:
+    StringContainer(char* s) {x = s;}
+    char* getIt();
+    void setIt(char* s);
+private:
+    char* x;
+
+
+};
 
 #endif

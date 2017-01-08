@@ -5,7 +5,7 @@ eexport(s) = Expr(:export, unique(s)...)
 function efunction(name, args, body)
     Expr(:function, Expr(:call, name, args...), body)
 end
-
+eequals(x,y) = Expr(Symbol("="), x, y)
 function ecxxnew(constructor::Symbol, args)
     Expr(:macrocall, Symbol("@cxxnew"), Expr(:call, constructor, args...))
 end
