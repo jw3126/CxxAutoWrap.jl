@@ -25,11 +25,11 @@ end
 function wrapexpr(c::WrappedClass, wc::WrapperConfig=WrapperConfig())
     cxxspell = cxxspelling(c)
     jlspell = jlspelling(c, wc)
+    jlspell_destroy = jlspelling(Val{:Destructor} , wc)
     blk = quote end
-    append!(blk.args, eclass2type(cxxspell, jlspell).args)
+    append!(blk.args, eclass2type(cxxspell, jlspell, jlspell_destroy).args)
     append!(blk.args, map(wrapexpr, c.constructors))
     append!(blk.args, map(wrapexpr, c.methods))
-    # TODO destructor
     blk
 end
 
@@ -46,12 +46,6 @@ function wrapexpr(c::WrappedConstructor, wc::WrapperConfig=WrapperConfig())
     efunction(Symbol(jlspell), args, body)
 end
 
-function wrapexpr(d::WrappedDestructor, wc::WrapperConfig=WrapperConfig())
-    cxxspell = cxxspelling(c)
-    jlspell = jlspelling(c, wc)
-    # TODO
-    :nothing
-end
 
 function ecxxnew(constructor::Symbol, args)
     Expr(:macrocall, Symbol("@cxxnew"), Expr(:call, constructor, args...))
@@ -83,8 +77,7 @@ function jlspelling(x::ClassDecl, wc::WrapperConfig)
     x |> spelling |> wc.rename.class |> Symbol
 end
 jlspelling(x::WrappedConstructor, wc::WrapperConfig) = jlspelling(x.parent, wc)
-jlspelling(x::Destructor, wc::WrapperConfig) = Symbol("delete")
-
+jlspelling(x::Type{Val{:Destructor}}, wc::WrapperConfig) = wc.rename.destructor |> Symbol
 
 function wrapexpr(m::WrappedMethod, wc::WrapperConfig=WrapperConfig())
     sm_args = argspellings(m)
@@ -144,10 +137,17 @@ function ecxxtype(name)
     )
 end
 
-function eclass2type(cxxspell, jlspell)
+function edestroy(jlspell_class, jlspell_destroy)
+    obj = "obj"
+    body = Expr(:macrocall, Symbol("@icxx_str"), "delete \$($obj.pointer);")
+    obj_typed = Expr(Symbol("::"), Symbol(obj), jlspell_class)
+    efunction(jlspell_destroy, (obj_typed,), body)
+end
+
+function eclass2type(cxxspell, jlspell, jlspell_destroy)
     sT = jlspell
     sPtrT = Symbol("Ptr", jlspell)
-    quote
+    blk = quote
         typealias $sPtrT $(ecxxtype(cxxspell))
         immutable $sT
             pointer::$sPtrT
@@ -160,4 +160,6 @@ function eclass2type(cxxspell, jlspell)
             obj.pointer
         end
     end
+    push!(blk.args, edestroy(jlspell, jlspell_destroy))
+    blk
 end

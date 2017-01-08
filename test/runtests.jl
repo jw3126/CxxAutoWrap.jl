@@ -7,6 +7,7 @@ using Clang.cindex
 @testset "IntContainer" begin
     dir = Pkg.dir("CxxAutoWrap")
     folder_intcontainer = joinpath(dir, "deps", "examples", "IntContainer")
+    addHeaderDir(folder_intcontainer)
     path = joinpath(folder_intcontainer,"library.h")
 
 
@@ -21,4 +22,5 @@ using Clang.cindex
     @test getIt(c) == 1
     setIt(c, 10)
     @test getIt(c) == 10
+    delete(c)
 end

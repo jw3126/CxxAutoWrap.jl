@@ -18,30 +18,18 @@ analyze(m::CXXMethod) = analyze_method(m)
 function analyze(c::ClassDecl)
 
     constructors = WrappedConstructor[]
-    destructors = WrappedDestructor[]
     methods = WrappedMethod[]
     for node in children(c)
         if isa(node, CXXMethod)
             push!(methods, analyze(node))
         elseif isa(node, Constructor)
             push!(constructors, analyze(node))
-        elseif isa(node, Destructor)
-            push!(destructors, analyze(node))
         end
-    end
-
-    if length(destructors) == 0
-        destructor = Nullable{WrappedDestructor}()
-    elseif length(destructors) == 1
-        destructor = Nullable{WrappedDestructor}(first(destructors))
-    else
-        error("Multiple destructors $destructors in $c")
     end
 
     WrappedClass(
     spelling(c),
     constructors,
-    destructor,
     methods,
     c
     )

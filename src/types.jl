@@ -1,4 +1,4 @@
-export WrappedMethod, WrappedConstructor, WrappedClass, WrappedDestructor,
+export WrappedMethod, WrappedConstructor, WrappedClass,
 analyze
 
 using QuickTypes
@@ -14,15 +14,10 @@ immutable WrappedConstructor
     args::Array{Any,1}
 end
 
-immutable WrappedDestructor
-    destructor::Destructor
-    parent::ClassDecl
-end
 
 immutable WrappedClass
     name::String
     constructors::Vector{WrappedConstructor}
-    destructor::Nullable{WrappedDestructor}
     methods::Vector{WrappedMethod}
     class::ClassDecl
 end
@@ -30,7 +25,6 @@ import Clang.cindex: name, spelling
 name(x) = x.name
 
 raw(x::WrappedClass) = x.class
-raw(x::WrappedDestructor) = x.destructor
 raw(x::WrappedMethod) = x.method
 raw(x::WrappedConstructor) = x.constructor
 spelling(x) = x |> raw |> spelling
@@ -51,7 +45,7 @@ Captures renaming schemes for methods, files, ... for the translation C++ -> Jul
     header=jlext,
     method=identity_str,
     class=identity_str,
-    destructor=identity_str,
+    destructor::String="delete",
     )
 
 immutable WrapperConfig
