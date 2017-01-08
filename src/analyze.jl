@@ -34,3 +34,13 @@ function analyze(c::ClassDecl)
     c
     )
 end
+
+function analyze(x::TranslationUnit)
+    classnodes = WrappedClass[]
+    for node in children(x)
+        if isa(node, ClassDecl)
+            push!(classnodes, analyze(node))
+        end
+    end
+    WrappedHeader(x, classnodes)
+end

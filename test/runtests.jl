@@ -16,7 +16,7 @@ using Clang.cindex
     libpath = joinpath(folder_intcontainer, "cmake-build-debug", "libIntContainer.so")
     Libdl.dlopen(libpath, Libdl.RTLD_GLOBAL)
 
-    wrapexpr_header(path) |> eval
+    (wrapexpr_header(path)) |> eval
 
     c = IntContainer(1)
     @test getIt(c) == 1

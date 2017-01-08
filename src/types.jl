@@ -1,4 +1,4 @@
-export WrappedMethod, WrappedConstructor, WrappedClass,
+export WrappedMethod, WrappedConstructor, WrappedClass, WrappedHeader,
 analyze
 
 using QuickTypes
@@ -21,12 +21,19 @@ immutable WrappedClass
     methods::Vector{WrappedMethod}
     class::ClassDecl
 end
+
+immutable WrappedHeader
+    topcursor::TranslationUnit
+    classnodes::Vector{WrappedClass}
+end
+
 import Clang.cindex: name, spelling
 name(x) = x.name
 
 raw(x::WrappedClass) = x.class
 raw(x::WrappedMethod) = x.method
 raw(x::WrappedConstructor) = x.constructor
+raw(x::WrappedHeader) = x.topcursor
 spelling(x) = x |> raw |> spelling
 
 
@@ -51,7 +58,6 @@ Captures renaming schemes for methods, files, ... for the translation C++ -> Jul
 immutable WrapperConfig
     rename::Renamer
     #header_paths::Vector{String} # paths to headers that should be wrapped
-
 end
 WrapperConfig() = WrapperConfig(Renamer())
 

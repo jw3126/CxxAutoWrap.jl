@@ -12,15 +12,10 @@ Wraps C++ header at path.
 """
 function wrapexpr_header(path; kw...)
     topcu = cindex.parse_header(path, cplusplus=true; kw...)
-    classnodes = filter(topcu |> children |> collect) do node
-        isa(node, ClassDecl) && (basename(cu_file(node)) == basename(path))
-    end
-    ret = quote end
-    for node in classnodes
-        append!(ret.args, wrapexpr(analyze(node)).args)
-    end
+    ret = topcu |> analyze |> wrapexpr
     ret
 end
+
 
 function wrapexpr(c::WrappedClass, wc::WrapperConfig=WrapperConfig())
     cxxspell = cxxspelling(c)
@@ -47,16 +42,6 @@ function wrapexpr(c::WrappedConstructor, wc::WrapperConfig=WrapperConfig())
 end
 
 
-function ecxxnew(constructor::Symbol, args)
-    Expr(:macrocall, Symbol("@cxxnew"), Expr(:call, constructor, args...))
-end
-
-
-function emethodcall(obj, method, args)
-    callargs = join(("\$($arg)" for arg in args), ", ")
-    s = "\$($obj) -> $method($callargs);"
-    Expr(:macrocall, Symbol("@icxx_str"), s)
-end
 
 isoperator(s::String) = startswith(s, "operator")
 isoperator(m::CXXMethod) = m |> spelling |> isoperator
@@ -83,11 +68,47 @@ function wrapexpr(m::WrappedMethod, wc::WrapperConfig=WrapperConfig())
     sm_args = argspellings(m)
     cxxspell = cxxspelling(m)
     jlspell = jlspelling(m, wc)
-    sobj = :obj
-    eobj_typed = Expr(Symbol("::"), sobj, jlspelling(m.parent, wc))
-    body = emethodcall(:(jl2cxx($sobj)), cxxspell, sm_args)
-    efunction(jlspell, [eobj_typed; sm_args], body)
+    obj = :obj
+    T = jlspelling(m.parent, wc)
+    objT = etyped(obj, T)
+    body = quote
+        ret = $(emethodcall(:(jl2cxx($obj)), cxxspell, sm_args))
+        cxx2jl(ret)
+    end
+    efunction(jlspell, [objT; sm_args], body)
 end
+
+function methodsymbols(x::WrappedClass, wc::WrapperConfig=WrapperConfig())
+    Symbol[jlspelling(m, wc) for m in x.methods]
+end
+function exportsymbols(x::WrappedClass, wc::WrapperConfig)
+    [jlspelling(x, wc), methodsymbols(x, wc)...]
+end
+function exportsymbols(x::WrappedHeader, wc::WrapperConfig)
+    mapreduce(node -> exportsymbols(node, wc), vcat, [], x.classnodes)
+end
+
+function wrapexpr(x::WrappedHeader, wc::WrapperConfig=WrapperConfig())
+    content = mapreduce(node -> wrapexpr(node, wc).args, vcat, [], x.classnodes)
+
+    @show Expr(:block,
+    eexport(exportsymbols(x, wc)),
+    epreamble().args..., # TODO this should not be reproduced for every header, but only once per project
+    content...
+    )
+end
+
+# binary operator
+# function wrapexpr_operator2(m::WrappedMethod)
+#
+#     obj1 = :obj1
+#     obj2 = :obj2
+#
+#     body = eicxx()
+#
+#
+# end
+
 
 argspellings(m::WrappedMethod) = argspellings(m.args)
 argspellings(m::WrappedConstructor) = argspellings(m.args)
@@ -108,7 +129,6 @@ end
 function epreamble()
     quote
         using Cxx
-        import Base: ==, !=  # for operator overloading
 
         """
             jl2cxx(x)
@@ -128,19 +148,12 @@ function epreamble()
     end
 end
 
-function ecxxtype(name)
-    # expression for something like
-    # Cxx.CppPtr{Cxx.CppValue{Cxx.CxxQualType{Cxx.CppBaseType{name},(false,false,false)},N},(false,false,false)}
-    Expr(:curly, :(Cxx.CppPtr),
-        Expr(:macrocall, Symbol("@vcpp_str"), name),
-        (false, false, false)
-    )
-end
+
 
 function edestroy(jlspell_class, jlspell_destroy)
     obj = "obj"
-    body = Expr(:macrocall, Symbol("@icxx_str"), "delete \$($obj.pointer);")
-    obj_typed = Expr(Symbol("::"), Symbol(obj), jlspell_class)
+    body = eicxx("delete \$($obj.pointer);")
+    obj_typed = etyped(Symbol(obj), jlspell_class)
     efunction(jlspell_destroy, (obj_typed,), body)
 end
 
