@@ -1,27 +1,54 @@
 export wrapexpr,
 argspellings,
-eclass2type
+eclass2type,
+wrapexpr_header,
+epreamble
 
 
-function wrapexpr(c::WrappedClass)
+"""
+    wrapexpr_header(path; kw...)
+
+Wraps C++ header at path.
+"""
+function wrapexpr_header(path; kw...)
+    topcu = cindex.parse_header(path, cplusplus=true; kw...)
+    classnodes = filter(topcu |> children |> collect) do node
+        isa(node, ClassDecl) && (basename(cu_file(node)) == basename(path))
+    end
+    ret = quote end
+    for node in classnodes
+        append!(ret.args, wrapexpr(analyze(node)).args)
+    end
+    ret
+end
+
+function wrapexpr(c::WrappedClass, wc::WrapperConfig=WrapperConfig())
+    cxxspell = cxxspelling(c)
+    jlspell = jlspelling(c, wc)
     blk = quote end
-    append!(blk.args, eclass2type(spelling(c)).args)
+    append!(blk.args, eclass2type(cxxspell, jlspell).args)
     append!(blk.args, map(wrapexpr, c.constructors))
     append!(blk.args, map(wrapexpr, c.methods))
+    # TODO destructor
     blk
 end
 
-function wrapexpr(c::WrappedConstructor)
+function wrapexpr(c::WrappedConstructor, wc::WrapperConfig=WrapperConfig())
     args = argspellings(c)
     sconstructor = c |> spelling |> Symbol
+    cxxspell = cxxspelling(c)
+    jlspell = jlspelling(c, wc)
+
     body = quote
-        ptr = $(ecxxnew(sconstructor, args))
-        $sconstructor(ptr)
+        ptr = $(ecxxnew(Symbol(cxxspell), args))
+        $(Symbol(cxxspell))(ptr)
     end
-    efunction(sconstructor, args, body)
+    efunction(Symbol(jlspell), args, body)
 end
 
-function wrapexpr(d::WrappedDestructor)
+function wrapexpr(d::WrappedDestructor, wc::WrapperConfig=WrapperConfig())
+    cxxspell = cxxspelling(c)
+    jlspell = jlspelling(c, wc)
     # TODO
     :nothing
 end
@@ -38,38 +65,35 @@ function emethodcall(obj, method, args)
 end
 
 isoperator(s::String) = startswith(s, "operator")
-isoperator(m::WrappedMethod) = m |> spelling |> isoperator
-jlspelling_operator(s::String) = s[9:end]
+isoperator(m::CXXMethod) = m |> spelling |> isoperator
+jlspelling_operator(s::String) = s[9:end] |> Symbol
 
-function jlspelling_method(s::String)
-    if isoperator(s)
+
+cxxspelling(x) = Symbol(spelling(x))
+jlspelling(x, wc::WrapperConfig) = jlspelling(raw(x), wc)
+function jlspelling(x::CXXMethod, wc::WrapperConfig)
+    if isoperator(x)
         # should also import from Base for overloading!
-        s |> jlspelling_operator
+        x |> jlspelling_operator
     else
-        s
+        x |> spelling |> wc.rename.method |> Symbol
     end
 end
-
-function jlspelling_class(s::String)
-    s
+function jlspelling(x::ClassDecl, wc::WrapperConfig)
+    x |> spelling |> wc.rename.class |> Symbol
 end
+jlspelling(x::WrappedConstructor, wc::WrapperConfig) = jlspelling(x.parent, wc)
+jlspelling(x::Destructor, wc::WrapperConfig) = Symbol("delete")
 
-jlspelling(x) = x |> raw |> jlspelling
-jlspelling(x::CXXMethod) = x |> spelling |> jlspelling_method
-jlspelling(x::ClassDecl) = x |> spelling |> jlspelling_class
-jlspelling(x::Destructor) = "destroy"
-jlspelling(x::WrappedConstructor) = jlspelling(x.parent)
-jlsspelling(x) = Symbol(jlspelling(x))
-sspelling(x) = Symbol(spelling(x))
 
-function wrapexpr(m::WrappedMethod)
+function wrapexpr(m::WrappedMethod, wc::WrapperConfig=WrapperConfig())
     sm_args = argspellings(m)
-    sm = sspelling(m)
-    smjl = jlsspelling(m)
+    cxxspell = cxxspelling(m)
+    jlspell = jlspelling(m, wc)
     sobj = :obj
-    eobj_typed = Expr(Symbol("::"), sobj, jlsspelling(m.parent))
-    body = emethodcall(:(unwrap($sobj)), sm, sm_args)
-    efunction(smjl, [eobj_typed; sm_args], body)
+    eobj_typed = Expr(Symbol("::"), sobj, jlspelling(m.parent, wc))
+    body = emethodcall(:(jl2cxx($sobj)), cxxspell, sm_args)
+    efunction(jlspell, [eobj_typed; sm_args], body)
 end
 
 argspellings(m::WrappedMethod) = argspellings(m.args)
@@ -88,8 +112,30 @@ function argspellings(args::Vector)
     ret
 end
 
+function epreamble()
+    quote
+        using Cxx
+        import Base: ==, !=  # for operator overloading
 
-function ecxxtype(name::String)
+        """
+            jl2cxx(x)
+
+        Convert julia object to cxx object. This method is called on each argument before doing a
+        C++ method call.
+        """
+        jl2cxx(x) = x
+        jl2cxx(s::AbstractString) = pointer(String(s))
+
+        """
+            cxx2jl(x)
+
+        Convert C++ object to julia object. This method is called after each C++ method call.
+        """
+        cxx2jl(x) = x
+    end
+end
+
+function ecxxtype(name)
     # expression for something like
     # Cxx.CppPtr{Cxx.CppValue{Cxx.CxxQualType{Cxx.CppBaseType{name},(false,false,false)},N},(false,false,false)}
     Expr(:curly, :(Cxx.CppPtr),
@@ -98,18 +144,19 @@ function ecxxtype(name::String)
     )
 end
 
-function eclass2type(classspelling::String)
-    sT = Symbol(classspelling)
-    sPtrT = Symbol("Ptr", classspelling)
+function eclass2type(cxxspell, jlspell)
+    sT = jlspell
+    sPtrT = Symbol("Ptr", jlspell)
     quote
-        typealias $sPtrT $(ecxxtype(classspelling))
+        typealias $sPtrT $(ecxxtype(cxxspell))
         immutable $sT
             pointer::$sPtrT
+            $sT(p::$sPtrT) = new(p)
         end
-        function wrap(ptr::$sPtrT)
+        function cxx2jl(ptr::$sPtrT)
             $sT(ptr)
         end
-        function unwrap(obj::$sT)
+        function jl2cxx(obj::$sT)
             obj.pointer
         end
     end

@@ -1,6 +1,7 @@
 export WrappedMethod, WrappedConstructor, WrappedClass, WrappedDestructor,
 analyze
 
+using QuickTypes
 using Clang
 using Clang.wrap_cpp
 using Clang.cindex
@@ -34,50 +35,35 @@ raw(x::WrappedMethod) = x.method
 raw(x::WrappedConstructor) = x.constructor
 spelling(x) = x |> raw |> spelling
 
-function analyze(c::Constructor)
-    arg_list = get_args(c)
 
-    args = Any[]
-    for arg in arg_list
-        proxy = get_proxy(spelling(cu_type(arg)))
-        (proxy == Union{}) ? push!(args, arg) : push!(args, proxy)
-    end
-    return WrappedConstructor(spelling(c),
-                         c,
-                         cindex.getCursorLexicalParent(c),
-                         args)
+identity_str(s::String) = s # for debug we use this instead of identity
+function jlext(path)
+    stem, ext = splitext(path)
+    stem + ".jl"
 end
-analyze(d::Destructor) = WrappedDestructor(d, cindex.getCursorLexicalParent(d))
-analyze(m::CXXMethod) = analyze_method(m)
 
-function analyze(c::ClassDecl)
+"""
+    Renamer(;kw...)
 
-    constructors = WrappedConstructor[]
-    destructors = WrappedDestructor[]
-    methods = WrappedMethod[]
-    for node in children(c)
-        if isa(node, CXXMethod)
-            push!(methods, analyze(node))
-        elseif isa(node, Constructor)
-            push!(constructors, analyze(node))
-        elseif isa(node, Destructor)
-            push!(destructors, analyze(node))
-        end
-    end
-
-    if length(destructors) == 0
-        destructor = Nullable{WrappedDestructor}()
-    elseif length(destructors) == 1
-        destructor = Nullable{WrappedDestructor}(first(destructors))
-    else
-        error("Multiple destructors $destructors in $c")
-    end
-
-    WrappedClass(
-    spelling(c),
-    constructors,
-    destructor,
-    methods,
-    c
+Captures renaming schemes for methods, files, ... for the translation C++ -> Julia.
+"""
+@qimmutable Renamer(;
+    header=jlext,
+    method=identity_str,
+    class=identity_str,
+    destructor=identity_str,
     )
+
+immutable WrapperConfig
+    rename::Renamer
+    #header_paths::Vector{String} # paths to headers that should be wrapped
+
+end
+WrapperConfig() = WrapperConfig(Renamer())
+
+type WrapperState
+    # method list
+    # operator list for Base import
+    # exports
+    # single vs multifile
 end
