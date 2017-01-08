@@ -23,8 +23,8 @@ function wrapexpr(c::WrappedClass, wc::WrapperConfig=WrapperConfig())
     jlspell_destroy = jlspelling(Val{:Destructor} , wc)
     blk = quote end
     append!(blk.args, eclass2type(cxxspell, jlspell, jlspell_destroy).args)
-    append!(blk.args, map(wrapexpr, c.constructors))
-    append!(blk.args, map(wrapexpr, c.methods))
+    append!(blk.args, map(x -> wrapexpr(x, wc), c.constructors))
+    append!(blk.args, map(x -> wrapexpr(x, wc), c.methods))
     blk
 end
 
@@ -45,7 +45,9 @@ end
 
 isoperator(s::String) = startswith(s, "operator")
 isoperator(m::CXXMethod) = m |> spelling |> isoperator
-jlspelling_operator(s::String) = s[9:end] |> Symbol
+isoperator(m::WrappedMethod) = m |> raw |> isoperator
+jlspelling_operator(x::CXXMethod) = x |> spelling |> jlspelling_operator
+jlspelling_operator(x::String) = x[9:end] |> Symbol
 
 
 cxxspelling(x) = Symbol(spelling(x))
@@ -64,7 +66,17 @@ end
 jlspelling(x::WrappedConstructor, wc::WrapperConfig) = jlspelling(x.parent, wc)
 jlspelling(x::Type{Val{:Destructor}}, wc::WrapperConfig) = wc.rename.destructor |> Symbol
 
-function wrapexpr(m::WrappedMethod, wc::WrapperConfig=WrapperConfig())
+function wrapexpr(x::WrappedMethod, wc::WrapperConfig)
+    if isoperator(x)
+        # wrapexpr_operator2(x, wc)
+        println("not wrapping operator $x")
+        :()
+    else
+        wrapexpr_method(x, wc)
+    end
+end
+
+function wrapexpr_method(m::WrappedMethod, wc::WrapperConfig=WrapperConfig())
     jlspell = jlspelling(m, wc)
     jlargs = argspellings(m)
     cxxspell = cxxspelling(m)
@@ -92,7 +104,7 @@ end
 function wrapexpr(x::WrappedHeader, wc::WrapperConfig=WrapperConfig())
     content = mapreduce(node -> wrapexpr(node, wc).args, vcat, [], x.classnodes)
 
-    @show Expr(:block,
+    Expr(:block,
     eexport(exportsymbols(x, wc)),
     epreamble().args..., # TODO this should not be reproduced for every header, but only once per project
     content...
@@ -100,14 +112,17 @@ function wrapexpr(x::WrappedHeader, wc::WrapperConfig=WrapperConfig())
 end
 
 # binary operator
-# function wrapexpr_operator2(m::WrappedMethod)
-#
-#     obj1 = :obj1
-#     obj2 = :obj2
-#
-#     body = eicxx()
-#
-#
+# function wrapexpr_operator2(m::WrappedMethod, wc::WrapperConfig)
+#     op = jlspelling(m, wc)
+#     body = Expr(:block,
+#         eequals(:ocxx1, :(jl2cxx(obj1))),
+#         eequals(:ocxx2, :(jl2cxx(obj2))),
+#         eicxx( "&(\$ocxx1) $op &(\$ocxx2);" )
+#     )
+#     f = Expr(Symbol("."), :Base, QuoteNode(op))
+#     T = jlspelling(m.parent, wc)
+#     args = (etyped(:obj1, T), etyped(:obj2, T))
+#     efunction(f, args, body)
 # end
 
 

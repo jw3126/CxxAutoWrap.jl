@@ -11,6 +11,7 @@ public:
     }
     void setIt(int i);
     int getIt();
+    // bool operator==(IntContainer other);
     ~IntContainer() { std::cout << "destructor of IntContainer called successfully" << std::endl; }
 private:
     int x;

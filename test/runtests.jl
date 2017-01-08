@@ -24,6 +24,7 @@ Libdl.dlopen(libpath, Libdl.RTLD_GLOBAL)
     setIt(c, 10)
     @test getIt(c) == 10
     delete(c)
+
 end
 @testset "StringContainer" begin
     s = StringContainer("asd")
